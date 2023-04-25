@@ -10,8 +10,6 @@ Instructions for deploying a GPU cluster with Kubernetes
     - [Kubernetes Dashboard](#kubernetes-dashboard)
     - [Persistent Storage](#persistent-storage)
       - [NFS Client Provisioner](#nfs-client-provisioner)
-      - [Ceph Cluster (deprecated)](#ceph-cluster-deprecated)
-      - [NetApp Astra Trident](#netapp-astra-trident)
     - [Monitoring](#monitoring)
     - [Logging](#logging)
       - [Centralized syslog](#centralized-syslog)
@@ -134,57 +132,6 @@ ansible-playbook playbooks/k8s-cluster/nfs-client-provisioner.yml
 ```
 
 To skip this installation set `k8s_nfs_client_provisioner` to `false`.
-
-#### Ceph Cluster (deprecated)
-
-For a non-nfs based alternative, deploy a Ceph cluster running on Kubernetes for services that require persistent storage (such as Kubeflow):
-
-```bash
-./scripts/k8s/deploy_rook.sh
-```
-
-Poll the Ceph status by running (this script will return when Ceph initialization is complete):
-
-```bash
-./scripts/k8s/deploy_rook.sh -w
-```
-
-#### NetApp Astra Trident
-
-Deploy NetApp Astra Trident for services that require persistent storage (such as Kubeflow). Note that you must have a supported NetApp storage system/instance/service in order to use Astra Trident to provision persistent storage.
-
-1. Set configuration parameters.
-
-   ```bash
-   vi config/group_vars/netapp-trident.yml
-   ```
-
-2. Deploy Astra Trident using Ansible.
-
-   ```bash
-   # NOTE: If SSH requires a password, add: `-k`
-   # NOTE: If sudo on remote machine requires a password, add: `-K`
-   # NOTE: If SSH user is different than current user, add: `-u ubuntu`
-   ansible-playbook -l k8s-cluster playbooks/k8s-cluster/netapp-trident.yml
-   ```
-
-3. Verify that Astra Trident is running.
-
-   ```bash
-   ./tridentctl -n deepops-trident version
-   ```
-
-   Output of the above command should resemble the following:
-
-   ```console
-   +----------------+----------------+
-   | SERVER VERSION | CLIENT VERSION |
-   +----------------+----------------+
-   | 22.01.0        | 22.01.0        |
-   +----------------+----------------+
-   ```
-
-For more information on Astra Trident, please refer to the [official documentation](https://docs.netapp.com/us-en/trident/index.html).
 
 ### Monitoring
 
