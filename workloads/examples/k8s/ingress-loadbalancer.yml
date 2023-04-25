@@ -14,10 +14,10 @@ controller:
     type: LoadBalancer
   # Always run on master nodes
   nodeSelector:
-    node-role.kubernetes.io/control-plane: ""
+    node-role.kubernetes.io/control-plane: ''
 
 # Ingress back-end
 defaultBackend:
   # Always run on master nodes
   nodeSelector:
-    node-role.kubernetes.io/control-plane: ""
+    node-role.kubernetes.io/control-plane: ''
