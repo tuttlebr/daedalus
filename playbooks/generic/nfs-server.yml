@@ -1,0 +1,7 @@
+---
+- hosts: "{{ hostlist | default('all') }}"
+  become: yes
+  roles:
+    - { role: nfs, nfs_is_server: yes }
+  tags:
+    - nfs_server

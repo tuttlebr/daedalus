@@ -1,0 +1,23 @@
+---
+slurm_pam_lib_dir: /lib/x86_64-linux-gnu/security
+
+slurm_build_deps:
+  - build-essential
+  - libmunge-dev
+  - libmariadb-dev
+  - libmariadbclient-dev
+  - libpam0g-dev
+  - python3-minimal
+  - ruby-dev
+  - wget
+
+slurm_pmix_deps:
+  - build-essential
+  - libev-dev
+  - libevent-dev
+  - zlib1g
+  - zlib1g-dev
+  - pandoc
+
+slurm_hwloc_deps:
+  - build-essential
