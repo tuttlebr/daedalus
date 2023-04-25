@@ -1,125 +1,305 @@
-# DeepOps
+# Kubernetes Deployment Guide
 
-Infrastructure automation tools for Kubernetes and Slurm clusters with NVIDIA GPUs.
+Instructions for deploying a GPU cluster with Kubernetes
 
-## Table of Contents
+- [Kubernetes Deployment Guide](#kubernetes-deployment-guide)
+  - [Requirements](#requirements)
+  - [Installation Steps](#installation-steps)
+  - [Using Kubernetes](#using-kubernetes)
+  - [Optional Components](#optional-components)
+    - [Kubernetes Dashboard](#kubernetes-dashboard)
+    - [Persistent Storage](#persistent-storage)
+      - [NFS Client Provisioner](#nfs-client-provisioner)
+      - [Ceph Cluster (deprecated)](#ceph-cluster-deprecated)
+      - [NetApp Astra Trident](#netapp-astra-trident)
+    - [Monitoring](#monitoring)
+    - [Logging](#logging)
+      - [Centralized syslog](#centralized-syslog)
+      - [ELK logging](#elk-logging)
+    - [Container Registry](#container-registry)
+    - [Load Balancer and Ingress](#load-balancer-and-ingress)
+    - [Kubeflow](#kubeflow)
+    - [NVIDIA Network Operator](#nvidia-network-operator)
+  - [Cluster Maintenance](#cluster-maintenance)
+    - [Adding Nodes](#adding-nodes)
+    - [Removing Nodes](#removing-nodes)
+    - [Reset the Cluster](#reset-the-cluster)
+    - [Upgrading the Cluster](#upgrading-the-cluster)
 
-- [DeepOps](#deepops)
-  - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
-  - [Releases Notes](#releases-notes)
-  - [Deployment Requirements](#deployment-requirements)
-    - [Provisioning System](#provisioning-system)
-    - [Cluster System](#cluster-system)
-    - [Kubernetes](#kubernetes)
-    - [Slurm](#slurm)
-    - [Hybrid clusters](#hybrid-clusters)
-    - [Virtual](#virtual)
-  - [Updating DeepOps](#updating-deepops)
-  - [Copyright and License](#copyright-and-license)
-  - [Issues](#issues)
-  - [Contributing](#contributing)
+## Requirements
 
-## Overview
+- Control system to run the install process
+- One or more servers on which to install Kubernetes
 
-The DeepOps project encapsulates best practices in the deployment of GPU server clusters and sharing single powerful nodes (such as [NVIDIA DGX Systems](https://www.nvidia.com/en-us/data-center/dgx-systems/)). DeepOps may also be adapted or used in a modular fashion to match site-specific cluster needs. For example:
+## Installation Steps
 
-- An on-prem data center of NVIDIA DGX servers where DeepOps provides end-to-end capabilities to set up the entire cluster management stack
-- An existing cluster running Kubernetes where DeepOps scripts are used to deploy KubeFlow and connect NFS storage
-- An existing cluster that needs a resource manager / batch scheduler, where DeepOps is used to install Slurm or Kubernetes
-- A single machine where no scheduler is desired, only NVIDIA drivers, Docker, and the NVIDIA Container Runtime
+1. Install a supported operating system on all nodes.
 
-## Releases Notes
+   Install a supported operating system on all servers via a 3rd-party solution (i.e. [MAAS](https://maas.io/), [Foreman](https://www.theforeman.org/)) or utilize the provided [OS install container](../pxe).
 
-Latest release: [DeepOps 22.08 Release](https://github.com/NVIDIA/deepops/releases/tag/22.08)
+2. Set up your provisioning machine.
 
-- Kubernetes Default Components:
+   This will install Ansible and other software on the provisioning machine which will be used to deploy all other software to the cluster. For more information on Ansible and why we use it, consult the [Ansible Guide](../deepops/ansible.md).
 
-  - [kubernetes](https://github.com/kubernetes/kubernetes) v1.22.8
-  - [etcd](https://github.com/coreos/etcd) v3.5.0
-  - [docker](https://www.docker.com/) v20.10
-  - [containerd](https://containerd.io/) v1.5.8
-  - [cri-o](http://cri-o.io/) v1.22
-  - [calico](https://github.com/projectcalico/calico) v3.20.3
-  - [dashboard](https://github.com/kubernetes/dashboard/tree/master) v2.0.3
-  - [dashboard metrics scraper](https://github.com/kubernetes-sigs/dashboard-metrics-scraper/tree/master) v1.0.4
-  - [nvidia gpu operator](https://github.com/NVIDIA/gpu-operator/tree/master) 1.10.0
+   ```bash
+   # Install software prerequisites and copy default configuration
+   ./scripts/setup.sh
+   ```
 
-- Slurm Default Components:
+3. Create and edit the Ansible inventory.
 
-  - [slurm](https://github.com/SchedMD/slurm/tree/master) 21.08.8-2
-  - [Singularity](https://github.com/apptainer/singularity/tree/master) 3.7.3
-  - [docker](https://www.docker.com/) v20.10
+   Ansible uses an inventory which outlines the servers in your cluster. The setup script from the previous step will copy an example inventory configuration to the `config` directory.
 
-It is recommended to use the latest release branch for stable code (linked above). All development takes place on the master branch, which is generally [functional](docs/deepops/testing.md) but may change significantly between releases.
+   Edit the inventory:
 
-## Deployment Requirements
+   ```bash
+   # Edit inventory and add nodes to the "KUBERNETES" section
+   # Note: Etcd requires an odd number of servers
+   vi config/inventory
 
-### Provisioning System
+   # (optional) Modify `config/group_vars/*.yml` to set configuration parameters
+   ```
 
-The provisioning system is used to orchestrate the running of all playbooks and one will be needed when instantiating Kubernetes or Slurm clusters. Supported operating systems which are tested and supported include:
+   Note that as part of the kubernetes deployment process, the default behavior is to also deploy the [NVIDIA k8s-device-plugin](https://github.com/NVIDIA/k8s-device-plugin) for GPU support. The [GPU Operator](https://github.com/NVIDIA/gpu-operator) is an alternative all-in-one deployment method, which will deploy the [device plugin](https://github.com/NVIDIA/k8s-device-plugin) and optionally includes GPU tooling such as driver containers, [GPU Feature Discovery](https://github.com/NVIDIA/gpu-feature-discovery), [DCGM-Exporter](https://github.com/NVIDIA/dcgm-exporter) and [MIG Manager](https://github.com/NVIDIA/mig-parted). The default behavior of the [GPU Operator](https://github.com/NVIDIA/gpu-operator) in DeepOps is to deploy host-level drivers and NVIDIA software. To leverage driver containers as part of the GPU Operator, disable the `gpu_operator_preinstalled_nvidia_software` flag. To enable the GPU Operator in DeepOps...
 
-- NVIDIA DGX OS 4, 5
-- Ubuntu 18.04 LTS, 20.04 LTS
-- CentOS 7, 8
+   ```bash
+   vi config/group_vars/k8s-cluster.yml
 
-### Cluster System
+   # Enable GPU Operator
+   # set: deepops_gpu_operator_enabled: true
 
-The cluster nodes will follow the requirements described by Slurm or Kubernetes. You may also use a cluster node as a provisioning system but it is not required.
+   # Enable host-level drivers (must be 'true' for clusters with pre-installed NVIDIA drivers or DGX systems)
+   # set: gpu_operator_preinstalled_nvidia_software: true
+   ```
 
-- NVIDIA DGX OS 4, 5
-- Ubuntu 18.04 LTS, 20.04 LTS
-- CentOS 7, 8
+4. Verify the configuration
 
-You may also install a supported operating system on all servers via a 3rd-party solution (i.e. [MAAS](https://maas.io/), [Foreman](https://www.theforeman.org/)) or utilize the provided [OS install container](docs/pxe/minimal-pxe-container.md).
+   ```bash
+   ansible all -m raw -a "hostname"
+   ```
 
-### Kubernetes
+5. Install Kubernetes using Ansible and Kubespray.
 
-Kubernetes (K8s) is an open-source system for automating deployment, scaling, and management of containerized applications. The instantiation of a Kubernetes cluster is done by [Kubespray](submodules/kubespray). Kubespray runs on bare metal and most clouds, using Ansible as its substrate for provisioning and orchestration. For people with familiarity with Ansible, existing Ansible deployments or the desire to run a Kubernetes cluster across multiple platforms, Kubespray is a good choice. Kubespray does generic configuration management tasks from the "OS operators" ansible world, plus some initial K8s clustering (with networking plugins included) and control plane bootstrapping. DeepOps provides additional playbooks for orchestration and optimization of GPU environments.
+   ```bash
+   # NOTE: If SSH requires a password, add: `-k`
+   # NOTE: If sudo on remote machine requires a password, add: `-K`
+   # NOTE: If SSH user is different than current user, add: `-u ubuntu`
+   ansible-playbook -l k8s-cluster playbooks/k8s-cluster.yml
+   ```
 
-Consult the [DeepOps Kubernetes Deployment Guide](docs/k8s-cluster/) for instructions on building a GPU-enabled Kubernetes cluster using DeepOps.
+   More information on Kubespray can be found in the official [Getting Started Guide](https://github.com/kubernetes-sigs/kubespray/blob/master/docs/getting-started.md)
 
-For more information on Kubernetes in general, refer to the [official Kubernetes docs](https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/).
+6. Verify that the Kubernetes cluster is running.
 
-### Slurm
+   ```bash
+   # You may need to manually run: `sudo cp ./config/artifacts/kubectl /usr/local/bin`
+   kubectl get nodes
+   ```
 
-Slurm is an open-source cluster resource management and job scheduling system that strives to be simple, scalable, portable, fault-tolerant, and interconnect agnostic. Slurm currently has been tested only under Linux.
+   Optionally, verify all GPU nodes plug-ins in the Kubernetes cluster with following script.
 
-As a cluster resource manager, Slurm provides three key functions. First, it allocates exclusive and/or non-exclusive access to resources (compute nodes) to users for some duration of time so they can perform work. Second, it provides a framework for starting, executing, and monitoring work (normally a parallel job) on the set of allocated nodes. Finally, it arbitrates conflicting requests for resources by managing a queue of pending work. Slurm cluster instantiation is achieved through [SchedMD](https://slurm.schedmd.com/download.html)
+   ```bash
+   export CLUSTER_VERIFY_EXPECTED_PODS=1 # Expected number of GPUs in the cluster
+   ./scripts/k8s/verify_gpu.sh
+   ```
 
-Consult the [DeepOps Slurm Deployment Guide](docs/slurm-cluster/) for instructions on building a GPU-enabled Slurm cluster using DeepOps.
+## Using Kubernetes
 
-For more information on Slurm in general, refer to the [official Slurm docs](https://slurm.schedmd.com/overview.html).
+Now that Kubernetes is installed, consult the [Kubernetes Usage Guide](kubernetes-usage.md) for examples of how to use Kubernetes or see the [example workloads](../../workloads/examples/k8s/README.md).
 
-### Hybrid clusters
+## Optional Components
 
-**DeepOps does not test or support a configuration where both Kubernetes and Slurm are deployed on the same physical cluster.**
+The following components are completely optional and can be installed on an existing Kubernetes cluster.
 
-[NVIDIA Bright Cluster Manager](https://www.brightcomputing.com/brightclustermanager) is recommended as an enterprise solution which enables managing multiple workload managers within a single cluster, including Kubernetes, Slurm, Univa Grid Engine, and PBS Pro.
+### Kubernetes Dashboard
 
-**DeepOps does not test or support a configuration where nodes have a heterogenous OS running.**
-Additional modifications are needed if you plan to use unsupported operating systems such as RHEL.
+Run the following script to create an administrative user and print out the dashboard URL and access token:
 
-### Virtual
+```bash
+./scripts/k8s/deploy_dashboard_user.sh
+```
 
-To try DeepOps before deploying it on an actual cluster, a virtualized version of DeepOps may be deployed on a single node using Vagrant. This can be used for testing, adding new features, or configuring DeepOps to meet deployment-specific needs.
+### Persistent Storage
 
-Consult the [Virtual DeepOps Deployment Guide](virtual/README.md) to build a GPU-enabled virtual cluster with DeepOps.
+#### NFS Client Provisioner
 
-## Updating DeepOps
+The default behavior of DeepOps is to setup an NFS server on the first `kube-master` node. This temporary NFS server is used by the `nfs-client-provisioner` which is installed as the default StorageClass of a standard DeepOps deployment.
 
-To update from a previous version of DeepOps to a newer release, please consult the [DeepOps Update Guide](docs/deepops/update-deepops.md).
+To use an existing nfs server server update the `k8s_nfs_server` and `k8s_nfs_export_path` variables in `config/group_vars/k8s-cluster.yml` and set the `k8s_deploy_nfs_server` to false in `config/group_vars/k8s-cluster.yml`. Additionally, the `k8s_nfs_mkdir` variable can be set to `false` if the export directory is already configured on the server.
 
-## Copyright and License
+To manually install or re-install the `nfs-client-provisioner` run:
 
-This project is released under the [BSD 3-clause license](https://github.com/NVIDIA/deepops/blob/master/LICENSE).
+```bash
+ansible-playbook playbooks/k8s-cluster/nfs-client-provisioner.yml
+```
 
-## Issues
+To skip this installation set `k8s_nfs_client_provisioner` to `false`.
 
-NVIDIA DGX customers should file an NVES ticket via [NVIDIA Enterprise Services](https://nvid.nvidia.com/enterpriselogin/).
+#### Ceph Cluster (deprecated)
 
-Otherwise, bugs and feature requests can be made by [filing a GitHub Issue](https://github.com/NVIDIA/deepops/issues/new).
+For a non-nfs based alternative, deploy a Ceph cluster running on Kubernetes for services that require persistent storage (such as Kubeflow):
 
-## Contributing
+```bash
+./scripts/k8s/deploy_rook.sh
+```
 
-To contribute, please issue a [signed](https://raw.githubusercontent.com/NVIDIA/deepops/master/CONTRIBUTING.md) [pull request](https://help.github.com/articles/using-pull-requests/) against the master branch from a local fork. See the [contribution document](https://raw.githubusercontent.com/NVIDIA/deepops/master/CONTRIBUTING.md) for more information.
+Poll the Ceph status by running (this script will return when Ceph initialization is complete):
+
+```bash
+./scripts/k8s/deploy_rook.sh -w
+```
+
+#### NetApp Astra Trident
+
+Deploy NetApp Astra Trident for services that require persistent storage (such as Kubeflow). Note that you must have a supported NetApp storage system/instance/service in order to use Astra Trident to provision persistent storage.
+
+1. Set configuration parameters.
+
+   ```bash
+   vi config/group_vars/netapp-trident.yml
+   ```
+
+2. Deploy Astra Trident using Ansible.
+
+   ```bash
+   # NOTE: If SSH requires a password, add: `-k`
+   # NOTE: If sudo on remote machine requires a password, add: `-K`
+   # NOTE: If SSH user is different than current user, add: `-u ubuntu`
+   ansible-playbook -l k8s-cluster playbooks/k8s-cluster/netapp-trident.yml
+   ```
+
+3. Verify that Astra Trident is running.
+
+   ```bash
+   ./tridentctl -n deepops-trident version
+   ```
+
+   Output of the above command should resemble the following:
+
+   ```console
+   +----------------+----------------+
+   | SERVER VERSION | CLIENT VERSION |
+   +----------------+----------------+
+   | 22.01.0        | 22.01.0        |
+   +----------------+----------------+
+   ```
+
+For more information on Astra Trident, please refer to the [official documentation](https://docs.netapp.com/us-en/trident/index.html).
+
+### Monitoring
+
+Deploy Prometheus and Grafana to monitor Kubernetes and cluster nodes:
+
+```bash
+./scripts/k8s/deploy_monitoring.sh
+```
+
+Available Flags:
+
+```bash
+-h      This message.
+-p      Print monitoring URLs.
+-d      Delete monitoring namespace and crds. Note, this may delete PVs storing prometheus metrics.
+-x      Disable persistent data, this deploys Prometheus with no PV backing resulting in a loss of data across reboots.
+-w      Wait and poll the grafana/prometheus/alertmanager URLs until they properly return.
+delete  Legacy positional argument for delete. Same as -d flag.
+```
+
+The services can be reached from the following addresses:
+
+- Grafana: http://\<kube-master\>:30200
+- Prometheus: http://\<kube-master\>:30500
+- Alertmanager: http://\<kube-master\>:30400
+
+We deploy our monitoring services using the [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) project.
+For documentation on configuring and managing the monitoring services, please see the [prometheus-operator user guides](https://github.com/prometheus-operator/prometheus-operator/tree/master/Documentation/user-guides).
+The source for our built-in Grafana dashboards can be found in [src/dashboards](../../src/dashboards).
+
+### Logging
+
+#### Centralized syslog
+
+To enable syslog forwarding from the cluster nodes to the first Kubernetes controller node, you can set the following variables in your DeepOps configuration:
+
+```bash
+kube_enable_rsyslog_server: true
+kube_enable_rsyslog_client: true
+```
+
+For more information about our syslog forwarding functionality, please see the [centralized syslog guide](../misc/syslog.md).
+
+#### ELK logging
+
+Follow the [ELK logging Guide](logging.md) to setup logging in the cluster.
+
+The service can be reached from the following address:
+
+- Kibana: http://\<kube-master\>:30700
+
+### Container Registry
+
+The default container registry hostname is `registry.local`. To set another hostname (for example, one that is resolvable outside the cluster), add `-e container_registry_hostname=registry.example.com`.
+
+```bash
+ansible-playbook --tags container-registry playbooks/k8s-cluster/container-registry.yml
+```
+
+### Load Balancer and Ingress
+
+Many K8s applications require the deployment of a Load Balancer and Ingress. To deploy one, or both, of these services, refer to the [Load Balancer and Ingress Guide](ingress.md).
+
+### Kubeflow
+
+Kubeflow is a popular way for multiple users to run ML workloads. It exposes a Jupyter Notebook interface where users can request access to GPUs via the browser GUI and allows a user to build automated AI pipelines. To deploy Kubeflow refer to the [DeepOps Kubeflow Guide](kubeflow.md).
+
+For more information on Kubeflow, please refer to the [official documentation](https://www.kubeflow.org/docs/about/kubeflow/).
+
+### NVIDIA Network Operator
+
+NVIDIA Network Operator leverages Kubernetes CRDs and Operator SDK to manage networking related components in Kuberenets cluster. High performance networking in Kuberentes requires many components, such as multus-CNI, device drivers and plugins to be installed correctly, NVIDIA network operator aims to manage all those necessary components automatically under one operator frame work to simply the deployment, operation and management of NVIDIA networking for Kubernetes. To deploy NVIDIA network operator, please refer to the [NVIDIA Network Operator Deployment Guide in DeepOps](nvidia-network-operator.md), for more information on NVIDIA network operator, please refer to its [github](https://github.com/Mellanox/network-operator) page and this [solution guide](https://docs.nvidia.com/networking/display/COKAN10/Network+Operator).
+
+## Cluster Maintenance
+
+DeepOps uses [Kubespray](https://github.com/kubernetes-sigs/kubespray) to deploy Kubernetes and therefore common cluster actions (such as adding nodes, removing them, draining and upgrading the cluster) should be performed with it. Kubespray is included as a submodule in the submodules/kubespray directory.
+
+### Adding Nodes
+
+To add K8s nodes, modify the `config/inventory` file to include the new nodes under `[all]`. Then list the nodes as relevant under the `[kube-master]`, `[etcd]`, and `[kube-node]` sections. For example, if adding a new master node, list it under kube-master and etcd. A new worker node would go under kube-node.
+
+Then run the Kubespray `scale.yml` playbook...
+
+```bash
+# NOTE: If SSH requires a password, add: `-k`
+# NOTE: If sudo on remote machine requires a password, add: `-K`
+# NOTE: If SSH user is different than current user, add: `-u ubuntu`
+ansible-playbook -l k8s-cluster submodules/kubespray/scale.yml
+```
+
+More information on this topic may be found in the [Kubespray docs](https://github.com/kubernetes-sigs/kubespray/blob/master/docs/getting-started.md#adding-nodes).
+
+### Removing Nodes
+
+Removing nodes can be performed with Kubespray's `remove-node.yml` playbook and supplying the node names as extra vars...
+
+```bash
+# NOTE: If SSH requires a password, add: `-k`
+# NOTE: If sudo on remote machine requires a password, add: `-K`
+# NOTE: If SSH user is different than current user, add: `-u ubuntu`
+ansible-playbook submodules/kubespray/remove-node.yml --extra-vars "node=nodename0,nodename1"
+```
+
+This will drain `nodename0` & `nodename1`, stop Kubernetes services, delete certificates, and finally execute the kubectl command to delete the nodes.
+
+More information on this topic may be found in the [Kubespray docs](https://github.com/kubernetes-sigs/kubespray/blob/master/docs/getting-started.md#remove-nodes).
+
+### Reset the Cluster
+
+DeepOps is largely idempotent, but in some cases, it is helpful to completely reset a cluster. KubeSpray provides a best-effort attempt at this through a playbook. The script below is recommended to be run twice as some components may not completely uninstall due to time-outs/failed dependent conditions.
+
+```bash
+ansible-playbook submodules/kubespray/reset.yml
+```
+
+### Upgrading the Cluster
+
+Refer to the [Kubespray Upgrade docs](https://github.com/kubernetes-sigs/kubespray/blob/master/docs/upgrades.md) for instructions on how to upgrade the cluster.

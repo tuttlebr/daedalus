@@ -2,8 +2,8 @@
 - hosts: "{{ hostlist | default('all') }}"
   become: true
   tags:
-  - nvidia
-  - nvidia_driver
+    - nvidia
+    - nvidia_driver
   tasks:
     - name: Check for DGX packages
       stat:
