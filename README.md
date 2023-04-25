@@ -16,7 +16,6 @@ Instructions for deploying a GPU cluster with Kubernetes
       - [ELK logging](#elk-logging)
     - [Container Registry](#container-registry)
     - [Load Balancer and Ingress](#load-balancer-and-ingress)
-    - [Kubeflow](#kubeflow)
     - [NVIDIA Network Operator](#nvidia-network-operator)
   - [Cluster Maintenance](#cluster-maintenance)
     - [Adding Nodes](#adding-nodes)
@@ -194,12 +193,6 @@ ansible-playbook --tags container-registry playbooks/k8s-cluster/container-regis
 ### Load Balancer and Ingress
 
 Many K8s applications require the deployment of a Load Balancer and Ingress. To deploy one, or both, of these services, refer to the [Load Balancer and Ingress Guide](ingress.md).
-
-### Kubeflow
-
-Kubeflow is a popular way for multiple users to run ML workloads. It exposes a Jupyter Notebook interface where users can request access to GPUs via the browser GUI and allows a user to build automated AI pipelines. To deploy Kubeflow refer to the [DeepOps Kubeflow Guide](kubeflow.md).
-
-For more information on Kubeflow, please refer to the [official documentation](https://www.kubeflow.org/docs/about/kubeflow/).
 
 ### NVIDIA Network Operator
 
