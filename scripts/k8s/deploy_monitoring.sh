@@ -152,6 +152,7 @@ function setup_prom_monitoring() {
             --set alertmanager.ingress.hosts[0]="alertmanager-${ingress_ip_string}" \
             --set prometheus.ingress.hosts[0]="prometheus-${ingress_ip_string}" \
             --set grafana.ingress.hosts[0]="grafana-${ingress_ip_string}" \
+            --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
 	    --timeout 1200s \
             ${helm_prom_oper_args} \
             ${helm_kube_prom_args}
